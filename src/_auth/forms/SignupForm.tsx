@@ -1,47 +1,79 @@
-import { z } from "zod"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { useForm } from "react-hook-form"
-import { Button } from "@/components/ui/button"
-import {Link} from "react-router-dom"
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form"
-import { Input } from "@/components/ui/input"
-import { SignupValidation } from "@/lib/validation"
-import  Loader  from "@/components/shared/Loader"
-import { createUserAccount } from "@/lib/appwrite/api"
+import * as z from "zod";
+import { useForm } from "react-hook-form";
+import { Link, useNavigate } from "react-router-dom";
+import { zodResolver } from "@hookform/resolvers/zod";
 
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import Loader from "@/components/shared/Loader";
+import { useToast } from "@/components/ui/use-toast";
 
-
+import { useCreateUserAccount, useSignInAccount } from "@/lib/react-query/queriesAndMutations";
+import { SignupValidation } from "@/lib/validation";
+import { useUserContext } from "@/context/AuthContext";
 
 const SignupForm = () => {
-  const isLoading=false;
-// 1. Define your form.
-const form = useForm<z.infer<typeof SignupValidation>>({
-  resolver: zodResolver(SignupValidation),
-  defaultValues: {
-    name:"",
-    username: "",
-    email:"",
-    password:"",
-  },
-})
+  const { toast } = useToast();
+  const navigate = useNavigate();
+  const { checkAuthUser, isLoading: isUserLoading } = useUserContext();
 
-// 2. Define a submit handler.
-async function onSubmit(values: z.infer<typeof SignupValidation>) {
-    const newUser=await createUserAccount(values);
-    console.log(newUser);
-}
+  const form = useForm<z.infer<typeof SignupValidation>>({
+    resolver: zodResolver(SignupValidation),
+    defaultValues: {
+      name: "",
+      username: "",
+      email: "",
+      password: "",
+    },
+  });
+
+  // Queries
+  const { mutateAsync: createUserAccount, isPending: isCreatingAccount } = useCreateUserAccount();
+  const { mutateAsync: signInAccount, isPending: isSigningInUser } = useSignInAccount();
+
+  // Handler
+  const handleSignup = async (user: z.infer<typeof SignupValidation>) => {
+    try {
+      const newUser = await createUserAccount(user);
+
+      if (!newUser) {
+        toast({ title: "Sign up failed. Please try again.", });
+        
+        return;
+      }
+
+      const session = await signInAccount({
+        email: user.email,
+        password: user.password,
+      });
+
+      if (!session) {
+        toast({ title: "Something went wrong. Please login your new account", });
+        
+        navigate("/sign-in");
+        
+        return;
+      }
+
+      const isLoggedIn = await checkAuthUser();
+
+      if (isLoggedIn) {
+        form.reset();
+
+        navigate("/");
+      } else {
+        toast({ title: "Login failed. Please try again.", });
+        
+        return;
+      }
+    } catch (error) {
+      console.log({ error });
+    }
+  };
 
   return (
-
-      <Form {...form}>
+    <Form {...form}>
       <div className="sm:w-420 flex-center flex-col">
         <img src="/assets/images/logo.svg" alt="logo" />
 
@@ -53,7 +85,7 @@ async function onSubmit(values: z.infer<typeof SignupValidation>) {
         </p>
 
         <form
-          onSubmit={form.handleSubmit(onSubmit)}
+          onSubmit={form.handleSubmit(handleSignup)}
           className="flex flex-col gap-5 w-full mt-4">
           <FormField
             control={form.control}
@@ -110,21 +142,29 @@ async function onSubmit(values: z.infer<typeof SignupValidation>) {
               </FormItem>
             )}
           />
-        <Button type="submit" className="shad-button_primary">
-          {isLoading? (<div className="flex center gap-2">
-              <Loader/> Loading...
-          </div>):
-          "Sign Up"
-          }
-        </Button>
-        <p className="text-small-regular text-light-2 text-center mt-2">
-          Already a User? 
-          <Link to="sign-in" className="text-primary-500 text-small-semibold ml-1">Log In</Link>
-        </p>
-      </form>
+
+          <Button type="submit" className="shad-button_primary">
+            {isCreatingAccount || isSigningInUser || isUserLoading ? (
+              <div className="flex-center gap-2">
+                <Loader /> Loading...
+              </div>
+            ) : (
+              "Sign Up"
+            )}
+          </Button>
+
+          <p className="text-small-regular text-light-2 text-center mt-2">
+            Already have an account?
+            <Link
+              to="/sign-in"
+              className="text-primary-500 text-small-semibold ml-1">
+              Log in
+            </Link>
+          </p>
+        </form>
       </div>
     </Form>
-  )
-}
+  );
+};
 
-export default SignupForm
+export default SignupForm;
